@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:latest
+    container_name: dataeng_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: dataeng
+    ports:
+      - "5532:5432"
+    volumes:
+      - ./scripts:/docker-entrypoint-initdb.d
+      - /path/to/new/data:/var/lib/postgresql/data
+
+  neo4j:
+    image: neo4j:latest
+    container_name: my_neo4j
+    environment:
+      NEO4J_AUTH: neo4j/123456789
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+      - neo4j_plugins:/plugins
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_import:
+  neo4j_plugins:
