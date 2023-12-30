@@ -1,10 +1,13 @@
 from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
+from airflow.providers.postgres.operators.postgres import PostgresOperator
+
 from datetime import datetime, timedelta
 
 import os
 import random
 import pandas as pd
+import requests
 
 default_args = {
     'owner': 'airflow',
@@ -80,15 +83,17 @@ def clean_transform_data(**kwargs):
 
 def enrich_data(**kwargs):
     df = pd.read_json('/opt/airflow/data/transformed.json')
-    # null_doi = []
-    # for record in df.iterrows():
-    #     if pd.notnull(record['doi']):
-    #         # query crossref
-    #         print(record['doi'])
-    #     else:
-    #         null_doi.append(record)
+    df['references'] = df.apply(get_references_for_row, axis=1)
     filepath = '/opt/airflow/data/enriched.json'
     df.to_json(filepath)
+
+def get_references_for_row(row):
+    if pd.notnull(row['doi']):
+        response = requests.get('https://api.crossref.org/works/' + row['doi'])
+        data = response.json()
+        return data.get('reference')
+    else:
+        return None # find a way to get references just by title
 
 def load_to_neo4j(**kwargs):
     df = pd.read_json( '/opt/airflow/data/enriched.json')
@@ -135,4 +140,13 @@ load_to_postgres_task = PythonOperator(
     dag=dag,
 )
 
-ingest_task >> clean_transform_task >> enrich_task >> [load_to_neo4j_task, load_to_postgres_task]
+prepare_postgres_table = PostgresOperator(
+    task_id='prepare_postgres_table',
+    dag=dag,
+    postgres_conn_id='airflow_pg',
+    sql='init.sql',
+    trigger_rule='none_failed',
+    autocommit=True,
+)
+
+ingest_task >> clean_transform_task >> enrich_task >>  [load_to_neo4j_task, load_to_postgres_task]

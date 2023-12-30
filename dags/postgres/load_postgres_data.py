@@ -1,5 +1,25 @@
 import psycopg2
 
+def insert_references(cursor, references):
+    reference_ids = []
+    for reference in references:
+        try:
+            cursor.execute(
+                """
+                INSERT INTO reference (title, doi)
+                VALUES (%s, %s)
+                ON CONFLICT (title, doi)
+                DO NOTHING 
+                RETURNING id;
+                """,
+                reference
+            )
+            reference_id = cursor.fetchone()[0]
+            reference_ids.append(reference_id)
+        except psycopg2.Error as e:
+            print(f"Error while inserting reference: {e}")
+    return reference_ids
+
 def insert_authors(cursor, authors_parsed):
     author_ids = []
     for author in authors_parsed:
@@ -8,11 +28,11 @@ def insert_authors(cursor, authors_parsed):
         try:
             cursor.execute(
                 """
-                INSERT INTO authors (last_name, first_name, middle_name)
+                INSERT INTO author (last_name, first_name, middle_name)
                 VALUES (%s, %s, %s)
                 ON CONFLICT (last_name, first_name, middle_name)
                 DO UPDATE SET last_name = EXCLUDED.last_name
-                RETURNING author_id;
+                RETURNING id;
                 """,
                 author_tuple
             )
@@ -30,13 +50,13 @@ def insert_categories(cursor, categories):
             try:
                 cursor.execute(
                     """
-                    INSERT INTO categories (category_name)
+                    INSERT INTO category (category_name)
                     VALUES (%s)
                     ON CONFLICT (category_name)
                     DO NOTHING
-                    RETURNING category_id;
+                    RETURNING id;
                     """,
-                    (category,)
+                    category
                 )
                 result = cursor.fetchone()
                 category_id = result[0] if result else None
@@ -51,31 +71,38 @@ def load_data(cursor, record):
     try:
         authors_parsed = record.get('authors_parsed', [])
         categories = record.get('categories', '').split()
+        references = record.get('references', [])
         author_ids = insert_authors(cursor, authors_parsed)
         category_ids = insert_categories(cursor, categories)
+        reference_ids = insert_references(cursor, references)
 
         paper_id = record['id']
         cursor.execute(
             """
-            INSERT INTO papers (paper_id, title, submitter, comments, journal_ref, doi, report_no, abstract, update_date)
+            INSERT INTO paper (id, title, submitter, comments, journal_ref, doi, report_no, update_date)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (paper_id) DO NOTHING;
+            ON CONFLICT (id) DO NOTHING;
             """,
             (paper_id, record.get('title'), record.get('submitter'), record.get('comments'),
              record.get('journal-ref'), record.get('doi'), record.get('report-no'),
-             record.get('abstract'), record.get('update_date'))
+             record.get('update_date'))
         )
 
         for author_id in author_ids:
             cursor.execute(
-                "INSERT INTO paper_authors (paper_id, author_id) VALUES (%s, %s) ON CONFLICT DO NOTHING;",
+                "INSERT INTO paper_author (paper_id, author_id) VALUES (%s, %s) ON CONFLICT DO NOTHING;",
                 (paper_id, author_id)
             )
 
         for category_id in category_ids:
             cursor.execute(
-                "INSERT INTO paper_categories (paper_id, category_id) VALUES (%s, %s) ON CONFLICT DO NOTHING;",
+                "INSERT INTO paper_category (paper_id, category_id) VALUES (%s, %s) ON CONFLICT DO NOTHING;",
                 (paper_id, category_id)
+            )
+        for reference_id in reference_ids:
+            cursor.execute(
+                "INSERT INTO paper_reference (paper_id, reference_id) VALUES (%s, %s) ON CONFLICT DO NOTHING;",
+                (paper_id, reference_id)
             )
     except psycopg2.Error as e:
         print(f"Database error occurred: {e}")
@@ -83,9 +110,9 @@ def load_data(cursor, record):
 def connect():
     try:
         conn = psycopg2.connect(
-            dbname='dataeng',
-            user='postgres',
-            password='postgres',
+            dbname='airflow',
+            user='airflow',
+            password='airflow',
             host='localhost',
             port='5532'
         )
