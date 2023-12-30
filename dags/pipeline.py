@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 
 import os
 import random
-import opendatasets as od
 import pandas as pd
 
 default_args = {
@@ -27,18 +26,14 @@ dag = DAG(
 )
 #Test data set of 150 random records
 def ingest_data_test(**kwargs):
-    return pd.read_json('../sampled_articles.json', lines=True)
+    df = pd.read_json('/opt/airflow/data/sampled_articles.json', lines=True)
+    filepath = '/opt/airflow/data/ingested.json'
+    df.to_json(filepath)
+    return filepath
 
 
 #Production workflow
 def ingest_data_prod(**kwargs):
-    # Download the kaggle dataset to local computer
-    # Credentials can be in the same directory in a kaggle.json file and will be read automatically
-    od.download("https://www.kaggle.com/datasets/Cornell-University/arxiv")
-    # Get 200K lines for easier data management
-
-
-    # Specify the number of "lines" (objects) to write
     partition_size = 50000
     number_of_partitions = 4
     all_data = number_of_partitions * partition_size
@@ -76,24 +71,31 @@ def ingest_data_prod(**kwargs):
     df = pd.read_json(partition_path, lines=True)
     return df
 
-def clean_transform_data(df):
-    df = df.drop('abstract', axis=1)
+def clean_transform_data(**kwargs):
+    df = pd.read_json('/opt/airflow/data/ingested.json')
+    df.drop('abstract', axis=1)
+    filepath = '/opt/airflow/data/transformed.json'
+    df.to_json(filepath)
 
-    pass
 
-def enrich_data(df):
-    null_doi = []
-    for record in df:
-        if record['doi']:
-            # query crossref
-        else:
-            null_doi.insert(record)
-    pass
+def enrich_data(**kwargs):
+    df = pd.read_json('/opt/airflow/data/transformed.json')
+    # null_doi = []
+    # for record in df.iterrows():
+    #     if pd.notnull(record['doi']):
+    #         # query crossref
+    #         print(record['doi'])
+    #     else:
+    #         null_doi.append(record)
+    filepath = '/opt/airflow/data/enriched.json'
+    df.to_json(filepath)
 
 def load_to_neo4j(**kwargs):
+    df = pd.read_json( '/opt/airflow/data/enriched.json')
     pass
 
-def load_to_postgres(df):
+def load_to_postgres(**kwargs):
+    df = pd.read_json('/opt/airflow/data/enriched.json')
     from postgres.load_postgres_data import connect, load_data
     conn, cursor = connect()
     for record in df.to_dict('records'):
